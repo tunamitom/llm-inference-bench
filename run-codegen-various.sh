@@ -3,10 +3,10 @@
 # 6 diverse real-codegen prompts (mixed languages) -> robust mean +/- spread per depth.
 set -uo pipefail
 cd /home/tom/llm-inference-bench
-OUT=/home/tom/mimo-pro-dflash-vllm/results/eldritch-20260627/codegen-various
+OUT=/home/tom/llm-inference-bench/results/codegen-20260708
 mkdir -p "$OUT"
-M=mimo-v25-pro-fp4-dflash
-CTX=16000,128000,340000   # cpt 3.3 -> lands ~15.5k / ~113k / ~300k
+M=ripper
+CTX=16000,128000,340000,500000
 
 declare -A P
 P[py_lru]=$'\n\n# TASK\nIgnore the text above. Write a complete, self-contained Python module: a thread-safe LRU cache with per-key TTL expiry (get/set/delete/clear, capacity eviction, lock-based), plus a pytest suite. Docstrings and type hints. Output only Python code.'
