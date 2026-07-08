@@ -61,7 +61,7 @@ from rich.text import Text
 # Constants
 # ---------------------------------------------------------------------------
 
-VERSION = "0.4.26"
+VERSION = "0.4.27"
 
 CHARS_PER_TOKEN = 4
 DEFAULT_CALIBRATION_CACHE = "/tmp/llm_decode_bench_token_calibration_cache.json"
@@ -4372,7 +4372,7 @@ BUILTIN_TEST_PROFILES = {
         "dataset": "gsm8k_test",
         "scorer": "dataset_gsm8k",
         "score_source": "final_answer",
-        "default_max_tokens": 32768,
+        "default_max_tokens": 65536,
         "default_temperature": 0.0,
         "default_concurrency": 30,
         "default_runs": 0,
@@ -4389,7 +4389,7 @@ BUILTIN_TEST_PROFILES = {
         "dataset": "mmlu_pro_1000",
         "scorer": "dataset_mc_letter",
         "score_source": "final_answer",
-        "default_max_tokens": 32768,
+        "default_max_tokens": 65536,
         "default_temperature": 0.0,
         "default_concurrency": 30,
         "default_runs": 0,
@@ -4408,7 +4408,7 @@ BUILTIN_TEST_PROFILES = {
         "dataset": "gpqa_diamond",
         "scorer": "dataset_mc_letter",
         "score_source": "final_answer",
-        "default_max_tokens": 32768,
+        "default_max_tokens": 65536,
         "default_temperature": 0.0,
         "default_concurrency": 30,
         "default_runs": 0,

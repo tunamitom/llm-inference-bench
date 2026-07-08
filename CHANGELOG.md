@@ -1,5 +1,11 @@
 # Changelog
 
+## 0.4.27 - 2026-07-08
+
+### Dataset profile defaults
+
+- Raised the default `max_tokens` of the dataset accuracy profiles (`gsm8k`, `mmlu-pro`, `gpqa-diamond`) from 32768 to 65536, so heavy thinking-mode models never truncate on a healthy baseline and candidate `max_tokens` hits keep reading as degradation rather than budget artifacts. Override with `--max-tokens` as before; the value used is recorded in result metadata and checked implicitly by paired comparisons.
+
 ## 0.4.26 - 2026-07-06
 
 ### GPQA Diamond profile
