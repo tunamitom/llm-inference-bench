@@ -2,7 +2,7 @@
 # Various code-generation DFlash accept + decode-t/s, at 16k/128k/~300k, on the bf16 vLLM service.
 # 6 diverse real-codegen prompts (mixed languages) -> robust mean +/- spread per depth.
 set -uo pipefail
-cd /home/tom/llm-inference-bench
+cd /home/tom/llm-inference-bench/accept-bench
 OUT=/home/tom/llm-inference-bench/results/codegen-20260708
 mkdir -p "$OUT"
 M=ripper
