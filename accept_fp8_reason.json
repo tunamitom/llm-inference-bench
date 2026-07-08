@@ -1,0 +1,27 @@
+{
+  "model": "turin",
+  "container": "mimo-pro-dflash",
+  "gen_tokens": 1500,
+  "corpus": "/home/tom/llm-inference-bench/accept_corpus.txt",
+  "ignore_eos": false,
+  "rows": [
+    {
+      "target": 16000,
+      "ctx_tok": 17668,
+      "accept_len": 5.309,
+      "accept_rate": 0.616,
+      "decode_tps": 180.6,
+      "completion_tokens": 1500,
+      "samples": 7
+    },
+    {
+      "target": 128000,
+      "ctx_tok": 130590,
+      "accept_len": 3.178,
+      "accept_rate": 0.311,
+      "decode_tps": 103.3,
+      "completion_tokens": 1500,
+      "samples": 12
+    }
+  ]
+}
