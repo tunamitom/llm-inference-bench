@@ -61,7 +61,7 @@ from rich.text import Text
 # Constants
 # ---------------------------------------------------------------------------
 
-VERSION = "0.4.28"
+VERSION = "0.4.29"
 
 CHARS_PER_TOKEN = 4
 DEFAULT_CALIBRATION_CACHE = "/tmp/llm_decode_bench_token_calibration_cache.json"
@@ -7257,6 +7257,29 @@ def parse_number_from_end(text: str) -> Optional[float]:
     return float(nums[-1])
 
 
+def _no_answer_result(finish_reason: str) -> dict:
+    """Result for a request that produced no parseable answer.
+
+    Distinguishes a genuine format miss (the model answered but we could not
+    read it) from a truncation (the model hit the token limit and never
+    answered). Both are still wrong, but only the latter is a token-budget
+    artifact, so they get distinct labels so the report is not misleading.
+    """
+    if str(finish_reason or "").lower() == "length":
+        return {
+            "correct": False,
+            "score_label": "truncated",
+            "score_detail": "no answer: hit max_tokens limit",
+            "parsed_answer": "",
+        }
+    return {
+        "correct": False,
+        "score_label": "fail",
+        "score_detail": "unparseable",
+        "parsed_answer": "",
+    }
+
+
 def score_completion_profile(
     *,
     profile: Optional[dict],
@@ -7266,6 +7289,7 @@ def score_completion_profile(
     regex: str,
     source: str,
     item: Optional[dict] = None,
+    finish_reason: str = "",
 ) -> dict:
     profile = profile or {}
     scorer = str(profile.get("scorer") or "")
@@ -7309,12 +7333,7 @@ def score_completion_profile(
         if parsed_number is None:
             parsed_number = parse_final_number_loose(content_text or output_text)
         if parsed_number is None:
-            return {
-                "correct": False,
-                "score_label": "fail",
-                "score_detail": "unparseable",
-                "parsed_answer": "",
-            }
+            return _no_answer_result(finish_reason)
         is_exact = math.isclose(parsed_number, expected_value, rel_tol=0.0, abs_tol=1e-4)
         return {
             "correct": is_exact,
@@ -7338,12 +7357,7 @@ def score_completion_profile(
             int((item or {}).get("num_options") or 10),
         )
         if not parsed_letter:
-            return {
-                "correct": False,
-                "score_label": "fail",
-                "score_detail": "unparseable",
-                "parsed_answer": "",
-            }
+            return _no_answer_result(finish_reason)
         is_exact = parsed_letter == expected_letter
         return {
             "correct": is_exact,
@@ -8819,6 +8833,7 @@ async def stream_completion_stats_request(
         regex=correct_regex,
         source=score_source,
         item=item,
+        finish_reason=finish_reason,
     )
     excerpt_source = output_text if save_text else final_answer
     excerpt = (excerpt_source or "").replace("\n", " ")[:240]
@@ -10613,6 +10628,7 @@ def summarize_completion_stats_runs(runs: list[CompletionStatsRun]) -> dict:
         "exact": int(score_counts.get("exact", 0)),
         "near": int(score_counts.get("near", 0)),
         "fail": int(score_counts.get("fail", 0)),
+        "truncated": int(score_counts.get("truncated", 0)),
         "correct_rate": (len(correct) / len(correct_known)) if correct_known else 0.0,
         "score_available": bool(correct_known or score_counts),
         "hit_max_tokens": len([r for r in ok if r.hit_max_tokens]),
@@ -10630,10 +10646,17 @@ def summarize_completion_stats_runs(runs: list[CompletionStatsRun]) -> dict:
 
 def format_completion_score_summary(summary: dict) -> str:
     counts = summary.get("score_counts") or {}
+    trunc = int(counts.get("truncated", 0) or 0)
+    trunc_suffix = f" / TRUNC {trunc}" if trunc else ""
     if counts.get("exact") is not None and any(k in counts for k in ("exact", "near", "fail")):
-        return f"EXACT {counts.get('exact', 0)} / NEAR {counts.get('near', 0)} / FAIL {counts.get('fail', 0)}"
+        return (
+            f"EXACT {counts.get('exact', 0)} / NEAR {counts.get('near', 0)} / "
+            f"FAIL {counts.get('fail', 0)}{trunc_suffix}"
+        )
     if any(k in counts for k in ("pass", "fail")):
-        return f"PASS {counts.get('pass', 0)} / FAIL {counts.get('fail', 0)}"
+        return f"PASS {counts.get('pass', 0)} / FAIL {counts.get('fail', 0)}{trunc_suffix}"
+    if trunc and summary.get("score_available"):
+        return f"{summary['correct']}/{summary['completed']}{trunc_suffix}"
     if summary.get("score_available"):
         return f"{summary['correct']}/{summary['completed']}"
     return "-"
@@ -10645,11 +10668,13 @@ def completion_star_bar(summary: dict, width: int = 10) -> str:
         exact = int(counts.get("pass", 0) or 0)
         near = 0
         fail = int(counts.get("fail", 0) or 0)
+        truncated = 0
     else:
         exact = int(summary.get("exact", counts.get("exact", 0)) or 0)
         near = int(summary.get("near", counts.get("near", 0)) or 0)
         fail = int(summary.get("fail", counts.get("fail", 0)) or 0)
-    scored = exact + near + fail
+        truncated = int(summary.get("truncated", counts.get("truncated", 0)) or 0)
+    scored = exact + near + fail + truncated
     if scored <= 0:
         return "✕" * width
 
@@ -10657,6 +10682,7 @@ def completion_star_bar(summary: dict, width: int = 10) -> str:
         ("★", exact),
         ("☆", near),
         ("✕", fail),
+        ("⊘", truncated),
     ]
     raw = [(symbol, value * width / scored) for symbol, value in buckets]
     sizes = [int(math.floor(amount)) for _symbol, amount in raw]
@@ -10681,6 +10707,8 @@ def format_completion_run_score(run: CompletionStatsRun) -> str:
         return "NEAR"
     if label == "fail":
         return "FAIL"
+    if label == "truncated":
+        return "TRUNC"
     if label == "pass":
         return "PASS"
     if run.correct is True:
@@ -11312,9 +11340,21 @@ def print_completion_stats_results(report: dict, console: Console) -> None:
             "Wilson 95% CI",
             f"{accuracy['wilson95_low'] * 100:.2f}% – {accuracy['wilson95_high'] * 100:.2f}%",
         )
+        if accuracy.get("truncated_no_answer"):
+            selected_table.add_row(
+                "[yellow]truncated (no answer)[/yellow]",
+                f"[yellow]{accuracy['truncated_no_answer']} — hit max_tokens before answering[/yellow]",
+            )
         if accuracy.get("unparseable"):
-            selected_table.add_row("unparseable answers", str(accuracy["unparseable"]))
-    selected_table.add_row("hit max_tokens", str(selected["hit_max_tokens"]))
+            selected_table.add_row("unparseable (format)", str(accuracy["unparseable"]))
+    hit_max = selected["hit_max_tokens"]
+    trunc_no_answer = int(accuracy.get("truncated_no_answer", 0) or 0) if accuracy else 0
+    hit_max_detail = (
+        f"{hit_max}  ({trunc_no_answer} produced no answer, "
+        f"{hit_max - trunc_no_answer} answered before the cap)"
+        if trunc_no_answer else str(hit_max)
+    )
+    selected_table.add_row("hit max_tokens", hit_max_detail)
     selected_table.add_row("completion tokens avg", f"{selected['completion_tokens']['avg']:,.0f}")
     selected_table.add_row("completion tokens p50", f"{selected['completion_tokens']['p50']:,.0f}")
     selected_table.add_row("completion tokens p90", f"{selected['completion_tokens']['p90']:,.0f}")
@@ -11371,13 +11411,18 @@ def print_completion_stats_results(report: dict, console: Console) -> None:
                 answer = f"{parsed} ({detail}) | {answer}" if detail else f"{parsed} | {answer}"
             elif detail:
                 answer = f"({detail}) | {answer}"
+            label = str(row.get("score_label") or "fail").lower()
+            score_cell = (
+                "[yellow]TRUNC[/yellow]" if label == "truncated"
+                else (row.get("score_label") or "fail").upper()
+            )
             cells = [str(row["run_index"])]
             if has_items:
                 cells.append(str(row.get("item_id") or "-"))
             cells.extend([
                 str(row["concurrency"]),
                 f"{row['completion_tokens']:,}",
-                str(row.get("score_label") or "fail").upper(),
+                score_cell,
                 answer,
             ])
             wrong.add_row(*cells)
@@ -11397,13 +11442,24 @@ def print_completion_stats_results(report: dict, console: Console) -> None:
             "is a rounded distribution: ★=EXACT, ✕=FAIL.[/dim]"
         )
     elif str(metadata.get("profile_scorer") or "") in ("dataset_gsm8k", "dataset_mc_letter"):
+        trunc = int((report.get("accuracy") or {}).get("truncated_no_answer", 0) or 0)
+        trunc_note = (
+            f" TRUNC ({trunc} here, glyph ⊘) means the model hit the max_tokens limit while still "
+            "reasoning and never emitted an answer — a token-budget artifact, not a format miss; "
+            "these still count as wrong. Raise --max-tokens (or shorten the model's thinking) to "
+            "recover them. 'unparseable (format)' is the separate case where the model did answer "
+            "but the letter/number could not be read."
+            if trunc else
+            " TRUNC would flag requests that hit the max_tokens limit before answering (none here)."
+        )
         console.print(
             "[dim]Interpretation: every measured request is a distinct pinned dataset item, so the "
             "correctness rate is dataset accuracy, not a resample pass-rate; the Wilson 95% interval "
-            "reflects item-count resolution. For quantization A/B tests keep engine version and flags "
-            "identical, run the same profile against each endpoint, and pass --compare-baseline to get "
-            "paired per-item deltas with an exact McNemar significance test. Completion-token inflation "
-            "and max_tokens hits are early damage signals even before accuracy moves.[/dim]"
+            "reflects item-count resolution." + trunc_note + " For quantization A/B tests keep engine "
+            "version and flags identical, run the same profile against each endpoint, and pass "
+            "--compare-baseline to get paired per-item deltas with an exact McNemar significance test. "
+            "Completion-token inflation and max_tokens hits are early damage signals even before "
+            "accuracy moves.[/dim]"
         )
     else:
         console.print(
@@ -11537,6 +11593,12 @@ def build_paired_comparison(
             if str(runs[i].get("score_detail") or "") == detail
         ])
 
+    def _count_truncated(runs: dict) -> int:
+        return len([
+            i for i in paired_ids
+            if str(runs[i].get("score_label") or "") == "truncated"
+        ])
+
     result.update({
         "baseline_correct": len(base_correct_ids),
         "candidate_correct": len(cand_correct_ids),
@@ -11569,6 +11631,10 @@ def build_paired_comparison(
         "unparseable": {
             "baseline": _count_detail(base_runs, "unparseable"),
             "candidate": _count_detail(cand_runs, "unparseable"),
+        },
+        "truncated_no_answer": {
+            "baseline": _count_truncated(base_runs),
+            "candidate": _count_truncated(cand_runs),
         },
         "per_category": category_rows,
     })
@@ -11641,8 +11707,15 @@ def print_paired_comparison(comparison: dict, console: Console) -> None:
     )
     hit_max = comparison.get("hit_max_tokens") or {}
     table.add_row("hit max_tokens", str(hit_max.get("baseline", 0)), str(hit_max.get("candidate", 0)))
+    truncated = comparison.get("truncated_no_answer") or {}
+    if truncated.get("baseline") or truncated.get("candidate"):
+        table.add_row(
+            "truncated (no answer)",
+            f"[yellow]{truncated.get('baseline', 0)}[/yellow]",
+            f"[yellow]{truncated.get('candidate', 0)}[/yellow]",
+        )
     unparseable = comparison.get("unparseable") or {}
-    table.add_row("unparseable", str(unparseable.get("baseline", 0)), str(unparseable.get("candidate", 0)))
+    table.add_row("unparseable (format)", str(unparseable.get("baseline", 0)), str(unparseable.get("candidate", 0)))
     console.print(table)
 
     delta_pp = comparison.get("delta_pp", 0.0)
@@ -12027,6 +12100,9 @@ async def run_completion_stats_benchmark(args) -> dict:
                 "unparseable": len([
                     r for r in scored_runs
                     if r.correct is False and r.score_detail == "unparseable"
+                ]),
+                "truncated_no_answer": len([
+                    r for r in scored_runs if r.score_label == "truncated"
                 ]),
                 "hit_max_tokens": len([r for r in all_runs if r.hit_max_tokens]),
                 "errors": len([r for r in all_runs if not r.ok]),

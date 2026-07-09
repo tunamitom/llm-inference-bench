@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.4.29 - 2026-07-08
+
+### Truncated vs unparseable scoring
+
+- Dataset accuracy profiles (`gsm8k`, `mmlu-pro`, `gpqa-diamond`) now distinguish a **TRUNCATED** result — the model hit the `max_tokens` limit while still reasoning and never emitted an answer — from a genuine **unparseable (format)** miss where the model answered but the value could not be read. Both still count as wrong (accuracy is unchanged), but they are no longer conflated under the misleading "unparseable" label.
+- The report shows a dedicated `truncated (no answer)` count, breaks `hit max_tokens` into "produced no answer" vs "answered before the cap", adds a `⊘` glyph and `TRUNC` label (quality bar, score line, and Failed Answers table), and explains the distinction in the interpretation note. A high truncated count is now an unambiguous signal to raise `--max-tokens`.
+- The paired A/B comparison reports `truncated (no answer)` per side (a damaged quant that thinks longer truncates more, so this is itself a degradation signal) and renames the format-only count to `unparseable (format)`.
+- Note: GSM8K truncations usually still surface as a wrong number rather than TRUNCATED, because truncated math reasoning almost always contains digits the scorer will read; the TRUNCATED category mainly benefits the multiple-choice profiles.
+
 ## 0.4.28 - 2026-07-08
 
 ### Dataset profile defaults

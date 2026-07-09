@@ -418,6 +418,18 @@ Wilson 95% interval; completion-token percentiles and `max_tokens` hits are
 reported alongside as early damage signals (a damaged quant usually inflates
 reasoning tokens before accuracy visibly drops).
 
+A request that hits the `max_tokens` limit while a thinking model is still
+reasoning — and therefore never emits an answer — is scored as **TRUNCATED**
+(glyph `⊘`), a distinct category from **unparseable (format)**, which is when
+the model *did* answer but the letter/number could not be read. Both still
+count as wrong, but TRUNCATED is a token-budget artifact, not a model failure:
+the report shows the count explicitly (`truncated (no answer)` and a
+`hit max_tokens` breakdown of how many produced no answer vs answered before
+the cap) so a high number is an unambiguous signal to raise `--max-tokens`
+rather than a misleading "unparseable". Because a damaged quant tends to think
+longer, a rising TRUNCATED count between two runs is itself a degradation
+signal, and the paired comparison reports it per side.
+
 ### Paired A/B Comparison
 
 `--compare-baseline previous.json` (with a dataset-profile run) or the
